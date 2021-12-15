@@ -1,60 +1,77 @@
 const router = require("express").Router();
-const { User } = require("../../models");
+const { Post, User } = require("../models");
+const withAuth = require("../utils/auth");
 
-router.post("/", async (req, res) => {
+router.get("/", async (req, res) => {
   try {
-    const userData = await User.create(req.body);
+    // Get all posts and join with user data
+    const postData = await Post.findAll({
+      include: [
+        {
+          model: User,
+          attributes: ["name"],
+        },
+      ],
+    });
 
-    req.session.save(() => {
-      req.session.user_id = userData.id;
-      req.session.logged_in = true;
+    const posts = postData.map((post) => post.get({ plain: true }));
 
-      res.status(200).json(userData);
+    res.render("homepage", {
+      posts,
+      logged_in: req.session.logged_in,
     });
   } catch (err) {
-    res.status(400).json(err);
+    res.status(500).json(err);
   }
 });
 
-router.post("/login", async (req, res) => {
+router.get("/post/:id", async (req, res) => {
   try {
-    const userData = await User.findOne({ where: { email: req.body.email } });
+    const postData = await Post.findByPk(req.params.id, {
+      include: [
+        {
+          model: User,
+          attributes: ["name"],
+        },
+      ],
+    });
 
-    if (!userData) {
-      res.status(400).json({
-        message: "Your email or password is incorrect. Please try again.",
-      });
-      return;
-    }
+    const post = postData.get({ plain: true });
 
-    const validPassword = await userData.checkPassword(req.body.password);
-
-    if (!validPassword) {
-      res.status(400).json({
-        message: "Your email or password is incorrect. Please try again.",
-      });
-      return;
-    }
-
-    req.session.save(() => {
-      req.session.user_id = userData.id;
-      req.session.logged_in = true;
-
-      res.json({ user: userData, message: "Log-in successful!" });
+    res.render("post", {
+      ...post,
+      logged_in: req.session.logged_in,
     });
   } catch (err) {
-    res.status(400).json(err);
+    res.status(500).json(err);
   }
 });
 
-router.post("/logout", (req, res) => {
+router.get("/dashboard", withAuth, async (req, res) => {
+  try {
+    const userData = await User.findByPk(req.session.user_id, {
+      attributes: { exclude: ["password"] },
+      include: [{ model: Post }],
+    });
+
+    const user = userData.get({ plain: true });
+
+    res.render("dashboard", {
+      ...user,
+      logged_in: true,
+    });
+  } catch (err) {
+    res.status(500).json(err);
+  }
+});
+
+router.get("/login", (req, res) => {
   if (req.session.logged_in) {
-    req.session.destroy(() => {
-      res.status(204).end();
-    });
-  } else {
-    res.status(404).end();
+    res.redirect("/dashboard");
+    return;
   }
+
+  res.render("login");
 });
 
 module.exports = router;
